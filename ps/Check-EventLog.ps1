@@ -150,55 +150,62 @@ function Show-SkuSi-Signature($LogEntry) {
 
 # ---------------------------------------------------------------------
 # MAIN
-
-$showDetails = (Read-Host "Show full details? [Y / Enter is N]") -match '^(y|yes)$'
-
-$db_dbx_events = Get-WinEvent -FilterHashtable @{
-    ProviderName = $provider
-    Id           = $eventIds
-}
-
-$skusi_events = Get-WinEvent -LogName $logName | Where-Object {
-    $xml = [xml]$_.ToXml()
-    $guid = $xml.Event.EventData.Data |
-        Where-Object { $_.Name -eq 'PolicyGUID' } |
-        Select-Object -ExpandProperty '#text'
-    $guid -eq $policyGuid
-}
-
-$events = @(
-    $db_dbx_events
-    $skusi_events
-) | Sort-Object TimeCreated
-
-if (-not $events) {
-    Write-Host "No Secure Boot / policy events found." -ForegroundColor Yellow
-    return
-}
-
-Write-Host
-foreach ($logEntry in $events) {
-
-    Write-Host ("{0} [{1}] " -f $logEntry.TimeCreated, $logEntry.Id) -NoNewline
-
-    # Split into: Summary & Details
-    $parts = $logEntry.Message -split '(?<=[.])\s+', 2
-
-    # Summary
-    Write-Host $parts[0] -ForegroundColor (Get-LevelColor $logEntry.Level)
-
-    # Details
-    if ($showDetails) {
-        if ($parts.Count -gt 1) {
-            Format-LogMessage $parts[1]
+do {
+    Write-Host
+    $choice = Read-Host "[Enter] Show Secure Boot Events, [F] with Full Details, [S] SkuSi Policy events"
+    switch ($choice.ToUpper()) {
+        'F' {
+            $events = Get-WinEvent -FilterHashtable @{
+                ProviderName = $provider
+                Id           = $eventIds
+            } | Sort-Object TimeCreated
+            $showDetails = $true
         }
-
-        # For SkuSi policy: Print Signature
-        Show-SkuSi-Signature($logEntry)
-
-        Write-Host
-        Spacer
-        Write-Host
+        'S' {
+            $events = Get-WinEvent -LogName $logName | Where-Object {
+                $xml = [xml]$_.ToXml()
+                $guid = $xml.Event.EventData.Data |
+                    Where-Object { $_.Name -eq 'PolicyGUID' } |
+                    Select-Object -ExpandProperty '#text'
+                $guid -eq $policyGuid
+            } | Sort-Object TimeCreated
+            $showDetails = $true
+        }
+        default {
+            $events = Get-WinEvent -FilterHashtable @{
+                ProviderName = $provider
+                Id           = $eventIds
+            } | Sort-Object TimeCreated
+            $showDetails = $false
+        }
     }
-}
-Write-Host
+
+    if (-not $events) {
+        Write-Host "No Secure Boot / policy events found." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host
+    foreach ($logEntry in $events) {
+
+        Write-Host ("{0} [{1}] " -f $logEntry.TimeCreated, $logEntry.Id) -NoNewline
+
+        # Split into: Summary & Details
+        $parts = $logEntry.Message -split '(?<=[.])\s+', 2
+
+        # Summary
+        Write-Host $parts[0] -ForegroundColor (Get-LevelColor $logEntry.Level)
+
+        # Details
+        if ($showDetails) {
+            if ($parts.Count -gt 1) {
+                Format-LogMessage $parts[1]
+            }
+
+            # Add Signature information for SkuSi policy 
+            Show-SkuSi-Signature($logEntry)
+
+            Spacer
+        }
+    }
+} while ($true)
